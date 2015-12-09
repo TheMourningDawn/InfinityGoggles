@@ -14,10 +14,10 @@
 #include <FastLED.h>
 
 
-#define DATAPIN_LEFT    6
-#define CLOCKPIN_LEFT   9
-#define DATAPIN_RIGHT    0
-#define CLOCKPIN_RIGHT   1
+#define DATAPIN_LEFT    0
+#define CLOCKPIN_LEFT   1
+#define DATAPIN_RIGHT    6
+#define CLOCKPIN_RIGHT   9
 #define NUM_LEDS 21 //Number of LEDS per lense
 
 CRGB leftLense[NUM_LEDS];
@@ -34,18 +34,18 @@ float MomentumV = 0; // vertical component of pupil rotational inertia
 
 // Tuning constants. (a.k.a. "Fudge Factors)  
 // These can be tweaked to adjust the liveliness and sensitivity of the eyes.
-const float friction = 0.999; // frictional damping constant.  1.0 is no friction.
-const float swing = 60;  // arbitrary divisor for gravitational force
-const float gravity = 200;  // arbitrary divisor for lateral acceleration
+const float friction = 0.985; // frictional damping constant.  1.0 is no friction.
+const float swing = 20;  // arbitrary divisor for gravitational force
+const float gravity = 100;  // arbitrary divisor for lateral acceleration
 const float nod = 7.5; // accelerometer threshold for toggling modes
 
 long nodStart = 0;
 long nodTime = 2000;
 
-bool antiGravity = true;  // The pendulum will anti-gravitate to the top.
+bool antiGravity = false;  // The pendulum will anti-gravitate to the top.
 bool mirroredEyes = false; // The left eye will mirror the right.
 
-const float halfWidth = 2.0; // half-width of pupil (in pixels)
+const float halfWidth = 2; // half-width of pupil (in pixels)
 
 // Pi for calculations - not the raspberry type :: 1.25
 const float Pi = 3.14159;
@@ -78,7 +78,7 @@ void setup(void) {
 
    // Try to initialise and warn if we couldn't detect the chip
   if (!lsm.begin()) {
-//    Serial.println("Oops ... unable to initialize the LSM9DS0. Check your wiring!");
+    Serial.println("Oops ... unable to initialize the LSM9DS0. Check your wiring!");
     while (1);
   }
   setupSensor();
@@ -86,8 +86,7 @@ void setup(void) {
 }
   
 // main processing loop
-void loop(void) 
-{
+void loop(void) {
    // Read the magnetometer and determine the compass heading:
    lsm.getEvent(&accel, &mag, &gyro, &temp); 
    
@@ -97,7 +96,8 @@ void loop(void)
    // Calculate the angle of the vector z,x from magnetic North
 //   float heading = atan2(mag.magnetic.x,mag.magnetic.z) * (180 / Pi);
     float heading = orientation.heading;
-
+//    Serial.print("Heading");
+//    Serial.println(heading);
    // Normalize to 0-360 for a compass heading
    if (heading < 0) {
       heading = 360 + heading;
@@ -134,45 +134,46 @@ void loop(void)
    while (round(pos) < 0) pos += 21.0;
    while (round(pos) > 20) pos -= 21.0;
 
-   // Now re-compute the display
+   CRGB color = selectColor(heading);
+
+
+   int lightOn[round(halfWidth*2 + 1)] = {0,1,2,3};
+   int lightIndex = 0;
+   for(int i = pos;i>pos-halfWidth;i--) {
+     lightOn[lightIndex] = wrapAround(i);
+     lightIndex++;
+   }
+   for(int i=pos;i<pos+halfWidth;i++) {
+     lightOn[lightIndex] = wrapAround(i);
+     lightIndex++;
+   }
    for (int i = 0; i <21; i++) {
-      // Compute the distance bewteen the pixel and the center
-      // point of the virtual pendulum.
-      float diff = i - pos;
-
-      // Light up nearby pixels proportional to their proximity to 'pos'
-      if (fabs(diff) <= halfWidth) {
-         CRGB color;
-         float proximity = halfWidth - fabs(diff) * 200; //Not being used right now
-
-         // pick a color based on heading & proximity to 'pos'
-         color = selectColor(heading);
-         
-         // do both eyes
-         leftLense[i] = color;
-         float rightLenseOffset = i - 10;
-         while (round(rightLenseOffset) < 0) rightLenseOffset += 21.0;
-         while (round(rightLenseOffset) > 20) rightLenseOffset -= 21.0;
-         int rightLenseIndex = fabs(rightLenseOffset);
-         if (mirroredEyes) {
-           rightLense[rightLenseIndex] = color;
-         } else {
-           rightLense[rightLenseIndex] = color;
-         }
-      } else {// all others are off
-         float rightLenseOffset = i - 10;
-         while (round(rightLenseOffset) < 0) rightLenseOffset += 21.0;
-         while (round(rightLenseOffset) > 20) rightLenseOffset -= 21.0;
-         int rightLenseIndex = fabs(rightLenseOffset);
-         leftLense[i] = CRGB(0,0,0);
-         if (mirroredEyes) {
-           rightLense[rightLenseIndex] = CRGB(0,0,0);
-         } else {
-           rightLense[rightLenseIndex] = CRGB(0,0,0);
-         }
+      int rightIndex = i;
+      int leftIndex = wrapAround(i - 10); // This is because the strips aren't installed in the same place
+      boolean turnedOn = false;
+      for(int j=0;j<(halfWidth*2+1);j++) {
+        if(lightOn[j] == i){
+          leftLense[leftIndex] = color;
+          rightLense[rightIndex] = color;
+          turnedOn = true;
+        }
+      }
+      if(turnedOn == false){
+        leftLense[leftIndex] = CRGB(0,0,0);
+        rightLense[rightIndex] = CRGB(0,0,0);
       }
    }
    FastLED.show();
+}
+
+int wrapAround(int value) {
+  if(value < 0) {
+    return value + 21;
+  }
+  if(value > 20) {
+    return value - 21;
+  }
+  return value;
 }
 
 // choose a color based on the compass heading and proximity to "pos".
@@ -215,12 +216,12 @@ void CheckForNods(sensors_event_t event){
 // Reset to default
 void resetModes() {
    antiGravity = false;
-   mirroredEyes = true;
+   mirroredEyes = false;
    
    /// spin-up
-   spin(CRGB(255, 0, 0), 1, 500);
-   spin(CRGB(0, 255, 0), 1, 500);
-   spin(CRGB(0, 0, 255), 1, 500);
+   spin(CRGB(255, 0, 0), 1, 250);
+   spin(CRGB(0, 255, 0), 1, 250);
+   spin(CRGB(0, 0, 255), 1, 250);
    spinUp();
 }
 
