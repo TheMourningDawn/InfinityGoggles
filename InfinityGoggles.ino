@@ -42,7 +42,7 @@ const float nod = 7.5; // accelerometer threshold for toggling modes
 long nodStart = 0;
 long nodTime = 2000;
 
-bool antiGravity = false;  // The pendulum will anti-gravitate to the top.
+bool antiGravity = true;  // The pendulum will anti-gravitate to the top.
 bool mirroredEyes = false; // The left eye will mirror the right.
 
 const float halfWidth = 2; // half-width of pupil (in pixels)
@@ -131,8 +131,8 @@ void loop(void) {
    pos += MomentumH + MomentumV;
    
    // handle the wrap-arounds at the top
-   while (round(pos) < 0) pos += 21.0;
-   while (round(pos) > 20) pos -= 21.0;
+   while (round(pos) < 0) pos += NUM_LEDS;
+   while (round(pos) > 20) pos -= NUM_LEDS;
 
    CRGB color = selectColor(heading);
 
@@ -147,7 +147,7 @@ void loop(void) {
      lightOn[lightIndex] = wrapAround(i);
      lightIndex++;
    }
-   for (int i = 0; i <21; i++) {
+   for (int i = 0; i <NUM_LEDS; i++) {
       int rightIndex = i;
       int leftIndex = wrapAround(i - 10); // This is because the strips aren't installed in the same place
       boolean turnedOn = false;
@@ -168,10 +168,10 @@ void loop(void) {
 
 int wrapAround(int value) {
   if(value < 0) {
-    return value + 21;
+    return value + NUM_LEDS;
   }
-  if(value > 20) {
-    return value - 21;
+  if(value > NUM_LEDS -1) {
+    return value - NUM_LEDS;
   }
   return value;
 }
@@ -215,7 +215,7 @@ void CheckForNods(sensors_event_t event){
 
 // Reset to default
 void resetModes() {
-   antiGravity = false;
+   antiGravity = true;
    mirroredEyes = false;
    
    /// spin-up
@@ -260,4 +260,5 @@ void spin(CRGB color, int count, int time) {
     }
   }
 }
+
 
