@@ -1,6 +1,9 @@
 // Googly Eye Goggles
 // By Bill Earl
 // For Adafruit Industries
+// Edited by
+// Charlie Hendricks
+// because I want what I want?
 //
 // The googly eye effect is based on a physical model of a pendulum.
 // The pendulum motion is driven by accelerations in 2 axis.
@@ -25,7 +28,6 @@ CRGB rightLense[NUM_LEDS];
 
 Adafruit_LSM9DS0 lsm = Adafruit_LSM9DS0();
 sensors_event_t accel, mag, gyro, temp;
-Adafruit_Simple_AHRS ahrs(&lsm.getAccel(), &lsm.getMag());
 
 float pos = 6;  // Starting center position of pupil
 float increment = 2 * 3.14159 / NUM_LEDS; // distance between pixels in radians
@@ -42,48 +44,33 @@ const float nod = 7.5; // accelerometer threshold for toggling modes
 long nodStart = 0;
 long nodTime = 2000;
 
-bool antiGravity = false;  // The pendulum will anti-gravitate to the top.
+bool antiGravity = true;  // The pendulum will anti-gravitate to the top.
 bool mirroredEyes = false; // The left eye will mirror the right.
 
 const float halfWidth = 2; // half-width of pupil (in pixels)
 
-// Pi for calculations - not the raspberry type :: 1.25
+// Pi for calculations - not the raspberry type
 const float Pi = 3.14159;
 
 void setupSensor()
 {
   // 1.) Set the accelerometer range
-  lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_2G);
-  //lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_4G);
-  //lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_6G);
-  //lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_8G);
-  //lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_16G);
+  lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_2G); // 2G, 4G, 6G, 8G, 16G
 
   // 2.) Set the magnetometer sensitivity
-  lsm.setupMag(lsm.LSM9DS0_MAGGAIN_2GAUSS);
-  //lsm.setupMag(lsm.LSM9DS0_MAGGAIN_4GAUSS);
-  //lsm.setupMag(lsm.LSM9DS0_MAGGAIN_8GAUSS);
-  //lsm.setupMag(lsm.LSM9DS0_MAGGAIN_12GAUSS);
+  lsm.setupMag(lsm.LSM9DS0_MAGGAIN_2GAUSS); //2GAUSS,4GAUSS,8GAUSS,12GAUSS
 
   // 3.) Setup the gyroscope
-  lsm.setupGyro(lsm.LSM9DS0_GYROSCALE_245DPS);
-  //lsm.setupGyro(lsm.LSM9DS0_GYROSCALE_500DPS);
-  //lsm.setupGyro(lsm.LSM9DS0_GYROSCALE_2000DPS);
-//  Serial.println("did this?");
+  lsm.setupGyro(lsm.LSM9DS0_GYROSCALE_245DPS); // 245DPS,500DPS,2000DPS
 }
 
 void setup(void)
 {
-//   Serial.begin(9600);
   FastLED.addLeds<APA102, DATAPIN_LEFT, CLOCKPIN_LEFT>(leftLense, NUM_LEDS);
   FastLED.addLeds<APA102, DATAPIN_RIGHT, CLOCKPIN_RIGHT>(rightLense, NUM_LEDS);
 
-  // Try to initialise and warn if we couldn't detect the chip
-  if (!lsm.begin())
-  {
-//    Serial.println("Oops ... unable to initialize the LSM9DS0. Check your wiring!");
-    while (1);
-  }
+  // Try to initialise
+  if (!lsm.begin()) { while (1); }
   setupSensor();
   resetModes();
 }
@@ -96,13 +83,8 @@ void loop(void)
 
   CRGB color = selectColor(fabs(round(mag.magnetic.z * 100)));
 
-  Serial.print("Z: ");
-  Serial.print(mag.magnetic.z);
-  Serial.print("  magConv: ");
-  Serial.println(fabs(round(mag.magnetic.z * 100)));
-
   // Check for mode change commands
-//   CheckForNods(lsm);
+  // CheckForNods(lsm);
 
   // apply a little frictional damping to keep things in control and prevent perpetual motion
   MomentumH *= friction;
@@ -135,7 +117,7 @@ void loop(void)
   while (round(pos) < 0) pos += NUM_LEDS;
   while (round(pos) > NUM_LEDS - 1) pos -= NUM_LEDS;
 
-  int lightOn[round(halfWidth * 2 + 1)] = {0, 1, 2, 3};
+  int lightOn[round(halfWidth * 2 + 1)];
   int lightIndex = 0;
   for(int i = pos; i > pos - halfWidth; i--)
   {
@@ -183,12 +165,9 @@ int wrapAround(int value)
   return value;
 }
 
-// choose a color based on the compass heading and proximity to "pos".
 CRGB selectColor(float heading)
 {
   int convertedHeading = map(heading, 0, 51, 0, 255);
-  Serial.print("Converted: ");
-  Serial.println(convertedHeading);
   return CHSV(convertedHeading, 255, 180);
 }
 
@@ -240,7 +219,7 @@ void CheckForNods(sensors_event_t event)
 // Reset to default
 void resetModes()
 {
-  antiGravity = false;
+  antiGravity = true;
   mirroredEyes = false;
 
   /// spin-up
