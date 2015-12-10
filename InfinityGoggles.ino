@@ -28,7 +28,7 @@ sensors_event_t accel, mag, gyro, temp;
 Adafruit_Simple_AHRS ahrs(&lsm.getAccel(), &lsm.getMag());
  
 float pos = 6;  // Starting center position of pupil
-float increment = 2 * 3.14159 / 21; // distance between pixels in radians
+float increment = 2 * 3.14159 / NUM_PIXELS; // distance between pixels in radians
 float MomentumH = 0; // horizontal component of pupil rotational inertia
 float MomentumV = 0; // vertical component of pupil rotational inertia
 
@@ -42,7 +42,7 @@ const float nod = 7.5; // accelerometer threshold for toggling modes
 long nodStart = 0;
 long nodTime = 2000;
 
-bool antiGravity = true;  // The pendulum will anti-gravitate to the top.
+bool antiGravity = false;  // The pendulum will anti-gravitate to the top.
 bool mirroredEyes = false; // The left eye will mirror the right.
 
 const float halfWidth = 2; // half-width of pupil (in pixels)
@@ -72,13 +72,13 @@ void setupSensor() {
 }
 
 void setup(void) {
-   Serial.begin(9600);
+//   Serial.begin(9600);
   FastLED.addLeds<APA102, DATAPIN_LEFT, CLOCKPIN_LEFT>(leftLense, NUM_LEDS);
   FastLED.addLeds<APA102, DATAPIN_RIGHT, CLOCKPIN_RIGHT>(rightLense, NUM_LEDS);
 
    // Try to initialise and warn if we couldn't detect the chip
   if (!lsm.begin()) {
-    Serial.println("Oops ... unable to initialize the LSM9DS0. Check your wiring!");
+//    Serial.println("Oops ... unable to initialize the LSM9DS0. Check your wiring!");
     while (1);
   }
   setupSensor();
@@ -90,18 +90,7 @@ void loop(void) {
    // Read the magnetometer and determine the compass heading:
    lsm.getEvent(&accel, &mag, &gyro, &temp); 
    
-   sensors_vec_t   orientation;
-   ahrs.getOrientation(&orientation);
-   
-   // Calculate the angle of the vector z,x from magnetic North
-//   float heading = atan2(mag.magnetic.x,mag.magnetic.z) * (180 / Pi);
-    float heading = orientation.heading;
-//    Serial.print("Heading");
-//    Serial.println(heading);
-   // Normalize to 0-360 for a compass heading
-   if (heading < 0) {
-      heading = 360 + heading;
-   }
+   CRGB color = selectColor(fabs(round(mag.magnetic.z*100)));
 
    // Check for mode change commands
 //   CheckForNods(lsm);
@@ -132,10 +121,7 @@ void loop(void) {
    
    // handle the wrap-arounds at the top
    while (round(pos) < 0) pos += NUM_LEDS;
-   while (round(pos) > 20) pos -= NUM_LEDS;
-
-   CRGB color = selectColor(heading);
-
+   while (round(pos) > NUM_LEDS - 1) pos -= NUM_LEDS;
 
    int lightOn[round(halfWidth*2 + 1)] = {0,1,2,3};
    int lightIndex = 0;
@@ -215,7 +201,7 @@ void CheckForNods(sensors_event_t event){
 
 // Reset to default
 void resetModes() {
-   antiGravity = true;
+   antiGravity = false;
    mirroredEyes = false;
    
    /// spin-up
@@ -249,11 +235,11 @@ void spinDown() {
 // utility function for feedback on mode changes.
 void spin(CRGB color, int count, int time) {
   for (int j = 0; j < count; j++) {
-    for (int i = 0; i < 21; i++) {
+    for (int i = 0; i < NUM_LEDS; i++) {
       rightLense[i] = color;
       leftLense[i] = color;
       FastLED.show();
-      delay(max(time / 21, 1));
+      delay(max(time / NUM_LEDS, 1));
       leftLense[i] = CRGB::Black;
       rightLense[i] = CRGB::Black;
       FastLED.show();
