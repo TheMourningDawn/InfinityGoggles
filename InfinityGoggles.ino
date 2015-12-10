@@ -26,13 +26,13 @@ CRGB rightLense[NUM_LEDS];
 Adafruit_LSM9DS0 lsm = Adafruit_LSM9DS0();
 sensors_event_t accel, mag, gyro, temp;
 Adafruit_Simple_AHRS ahrs(&lsm.getAccel(), &lsm.getMag());
- 
+
 float pos = 6;  // Starting center position of pupil
-float increment = 2 * 3.14159 / NUM_PIXELS; // distance between pixels in radians
+float increment = 2 * 3.14159 / NUM_LEDS; // distance between pixels in radians
 float MomentumH = 0; // horizontal component of pupil rotational inertia
 float MomentumV = 0; // vertical component of pupil rotational inertia
 
-// Tuning constants. (a.k.a. "Fudge Factors)  
+// Tuning constants. (a.k.a. "Fudge Factors)
 // These can be tweaked to adjust the liveliness and sensitivity of the eyes.
 const float friction = 0.985; // frictional damping constant.  1.0 is no friction.
 const float swing = 20;  // arbitrary divisor for gravitational force
@@ -50,14 +50,15 @@ const float halfWidth = 2; // half-width of pupil (in pixels)
 // Pi for calculations - not the raspberry type :: 1.25
 const float Pi = 3.14159;
 
-void setupSensor() {
+void setupSensor()
+{
   // 1.) Set the accelerometer range
   lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_2G);
   //lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_4G);
   //lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_6G);
   //lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_8G);
   //lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_16G);
-  
+
   // 2.) Set the magnetometer sensitivity
   lsm.setupMag(lsm.LSM9DS0_MAGGAIN_2GAUSS);
   //lsm.setupMag(lsm.LSM9DS0_MAGGAIN_4GAUSS);
@@ -71,171 +72,216 @@ void setupSensor() {
 //  Serial.println("did this?");
 }
 
-void setup(void) {
+void setup(void)
+{
 //   Serial.begin(9600);
   FastLED.addLeds<APA102, DATAPIN_LEFT, CLOCKPIN_LEFT>(leftLense, NUM_LEDS);
   FastLED.addLeds<APA102, DATAPIN_RIGHT, CLOCKPIN_RIGHT>(rightLense, NUM_LEDS);
 
-   // Try to initialise and warn if we couldn't detect the chip
-  if (!lsm.begin()) {
+  // Try to initialise and warn if we couldn't detect the chip
+  if (!lsm.begin())
+  {
 //    Serial.println("Oops ... unable to initialize the LSM9DS0. Check your wiring!");
     while (1);
   }
   setupSensor();
   resetModes();
 }
-  
-// main processing loop
-void loop(void) {
-   // Read the magnetometer and determine the compass heading:
-   lsm.getEvent(&accel, &mag, &gyro, &temp); 
-   
-   CRGB color = selectColor(fabs(round(mag.magnetic.z*100)));
 
-   // Check for mode change commands
+// main processing loop
+void loop(void)
+{
+  // Read the magnetometer and determine the compass heading:
+  lsm.getEvent(&accel, &mag, &gyro, &temp);
+
+  CRGB color = selectColor(fabs(round(mag.magnetic.z * 100)));
+
+  Serial.print("Z: ");
+  Serial.print(mag.magnetic.z);
+  Serial.print("  magConv: ");
+  Serial.println(fabs(round(mag.magnetic.z * 100)));
+
+  // Check for mode change commands
 //   CheckForNods(lsm);
 
-   // apply a little frictional damping to keep things in control and prevent perpetual motion
-   MomentumH *= friction;
-   MomentumV *= friction;
+  // apply a little frictional damping to keep things in control and prevent perpetual motion
+  MomentumH *= friction;
+  MomentumV *= friction;
 
-   // Calculate the horizontal and vertical effect on the virtual pendulum
-   // 'pos' is a pixel address, so we multiply by 'increment' to get radians.
-   float TorqueH = cos(pos * increment);  // peaks at top and bottom of the swing
-   float TorqueV = sin(pos * increment);    // peaks when the pendulum is horizontal
+  // Calculate the horizontal and vertical effect on the virtual pendulum
+  // 'pos' is a pixel address, so we multiply by 'increment' to get radians.
+  float TorqueH = cos(pos * increment);  // peaks at top and bottom of the swing
+  float TorqueV = sin(pos  * increment);   // peaks when the pendulum is horizontal
 
-   // Add the incremental acceleration to the existing momentum
-   // This code assumes that the accelerometer is mounted upside-down, level
-   // and with the X-axis pointed forward.  So the Y axis reads the horizontal
-   // acceleration and the inverse of the Z axis is gravity.
-   // For other orientations of the sensor, just change the axis to match.
-   MomentumH += TorqueH * accel.acceleration.z / swing;
-   if (antiGravity) {
-     MomentumV += TorqueV * -accel.acceleration.y / gravity;
-   } else {
-     MomentumV -= TorqueV * -accel.acceleration.y / gravity;
-   }
+  // Add the incremental acceleration to the existing momentum
+  // This code assumes that the accelerometer is mounted upside-down, level
+  // and with the X-axis pointed forward.  So the Y axis reads the horizontal
+  // acceleration and the inverse of the Z axis is gravity.
+  // For other orientations of the sensor, just change the axis to match.
+  MomentumH += TorqueH * accel.acceleration.z / swing;
+  if (antiGravity)
+  {
+    MomentumV += TorqueV * -accel.acceleration.y / gravity;
+  }
+  else
+  {
+    MomentumV -= TorqueV * -accel.acceleration.y / gravity;
+  }
 
-   // Calculate the new position
-   pos += MomentumH + MomentumV;
-   
-   // handle the wrap-arounds at the top
-   while (round(pos) < 0) pos += NUM_LEDS;
-   while (round(pos) > NUM_LEDS - 1) pos -= NUM_LEDS;
+  // Calculate the new position
+  pos += MomentumH + MomentumV;
 
-   int lightOn[round(halfWidth*2 + 1)] = {0,1,2,3};
-   int lightIndex = 0;
-   for(int i = pos;i>pos-halfWidth;i--) {
-     lightOn[lightIndex] = wrapAround(i);
-     lightIndex++;
-   }
-   for(int i=pos;i<pos+halfWidth;i++) {
-     lightOn[lightIndex] = wrapAround(i);
-     lightIndex++;
-   }
-   for (int i = 0; i <NUM_LEDS; i++) {
-      int rightIndex = i;
-      int leftIndex = wrapAround(i - 10); // This is because the strips aren't installed in the same place
-      boolean turnedOn = false;
-      for(int j=0;j<(halfWidth*2+1);j++) {
-        if(lightOn[j] == i){
-          leftLense[leftIndex] = color;
-          rightLense[rightIndex] = color;
-          turnedOn = true;
-        }
+  // handle the wrap-arounds at the top
+  while (round(pos) < 0) pos += NUM_LEDS;
+  while (round(pos) > NUM_LEDS - 1) pos -= NUM_LEDS;
+
+  int lightOn[round(halfWidth * 2 + 1)] = {0, 1, 2, 3};
+  int lightIndex = 0;
+  for(int i = pos; i > pos - halfWidth; i--)
+  {
+    lightOn[lightIndex] = wrapAround(i);
+    lightIndex++;
+  }
+  for(int i = pos; i < pos + halfWidth; i++)
+  {
+    lightOn[lightIndex] = wrapAround(i);
+    lightIndex++;
+  }
+  for (int i = 0; i < NUM_LEDS; i++)
+  {
+    int rightIndex = i;
+    int leftIndex = wrapAround(i - 10); // This is because the strips aren't installed in the same place
+    boolean turnedOn = false;
+    for(int j = 0; j < (halfWidth * 2 + 1); j++)
+    {
+      if(lightOn[j] == i)
+      {
+        leftLense[leftIndex] = color;
+        rightLense[rightIndex] = color;
+        turnedOn = true;
       }
-      if(turnedOn == false){
-        leftLense[leftIndex] = CRGB(0,0,0);
-        rightLense[rightIndex] = CRGB(0,0,0);
-      }
-   }
-   FastLED.show();
+    }
+    if(turnedOn == false)
+    {
+      leftLense[leftIndex] = CRGB(0, 0, 0);
+      rightLense[rightIndex] = CRGB(0, 0, 0);
+    }
+  }
+  FastLED.show();
 }
 
-int wrapAround(int value) {
-  if(value < 0) {
+int wrapAround(int value)
+{
+  if(value < 0)
+  {
     return value + NUM_LEDS;
   }
-  if(value > NUM_LEDS -1) {
+  if(value > NUM_LEDS - 1)
+  {
     return value - NUM_LEDS;
   }
   return value;
 }
 
 // choose a color based on the compass heading and proximity to "pos".
-CRGB selectColor(float heading) {
-     int convertedHeading = map(heading, 0, 360, 0, 255);
-     return CHSV(convertedHeading, 255, 180);
+CRGB selectColor(float heading)
+{
+  int convertedHeading = map(heading, 0, 51, 0, 255);
+  Serial.print("Converted: ");
+  Serial.println(convertedHeading);
+  return CHSV(convertedHeading, 255, 180);
 }
 
 // monitor orientation for mode-change 'gestures'
-void CheckForNods(sensors_event_t event){
-   if (accel.acceleration.x > nod) {
-     if (millis() - nodStart > nodTime) {
-       antiGravity = false;  
-       nodStart = millis(); // reset timer     
-       spinDown();
-     }
-   } else if (accel.acceleration.x < -(nod + 1)) {
-     if (millis() - nodStart > nodTime) {
-       antiGravity = true;  
-       spinUp();
-       nodStart = millis(); // reset timer     
-     }
-   } else if (accel.acceleration.y > nod) {
-     if (millis() - nodStart > nodTime) {
-       mirroredEyes = false;  
-       spinDown();
-       nodStart = millis(); // reset timer     
-     }
-   } else if (accel.acceleration.y < -nod) {
-     if (millis() - nodStart > nodTime) {
-       mirroredEyes = true;  
-       spinUp();
-       nodStart = millis(); // reset timer     
-      }
-   } else { // no nods in progress
-     nodStart = millis(); // reset timer
-   }
+void CheckForNods(sensors_event_t event)
+{
+  if (accel.acceleration.x > nod)
+  {
+    if (millis() - nodStart > nodTime)
+    {
+      antiGravity = false;
+      nodStart = millis(); // reset timer
+      spinDown();
+    }
+  }
+  else if (accel.acceleration.x < -(nod + 1))
+  {
+    if (millis() - nodStart > nodTime)
+    {
+      antiGravity = true;
+      spinUp();
+      nodStart = millis(); // reset timer
+    }
+  }
+  else if (accel.acceleration.y > nod)
+  {
+    if (millis() - nodStart > nodTime)
+    {
+      mirroredEyes = false;
+      spinDown();
+      nodStart = millis(); // reset timer
+    }
+  }
+  else if (accel.acceleration.y < -nod)
+  {
+    if (millis() - nodStart > nodTime)
+    {
+      mirroredEyes = true;
+      spinUp();
+      nodStart = millis(); // reset timer
+    }
+  }
+  else     // no nods in progress
+  {
+    nodStart = millis(); // reset timer
+  }
 }
 
 // Reset to default
-void resetModes() {
-   antiGravity = false;
-   mirroredEyes = false;
-   
-   /// spin-up
-   spin(CRGB(255, 0, 0), 1, 250);
-   spin(CRGB(0, 255, 0), 1, 250);
-   spin(CRGB(0, 0, 255), 1, 250);
-   spinUp();
+void resetModes()
+{
+  antiGravity = false;
+  mirroredEyes = false;
+
+  /// spin-up
+  spin(CRGB(255, 0, 0), 1, 250);
+  spin(CRGB(0, 255, 0), 1, 250);
+  spin(CRGB(0, 0, 255), 1, 250);
+  spinUp();
 }
 
 // gradual spin up
-void spinUp() {
-   for (int i = 300; i > 0;  i -= 20) {
-     spin(CRGB::White, 1, i);
-   }
-   pos = 0;
-   // leave it with some momentum and let it 'coast' to a stop
-   MomentumH = 3;  
+void spinUp()
+{
+  for (int i = 300; i > 0;  i -= 20)
+  {
+    spin(CRGB::White, 1, i);
+  }
+  pos = 0;
+  // leave it with some momentum and let it 'coast' to a stop
+  MomentumH = 3;
 }
 
 // Gradual spin down
-void spinDown() {
-   for (int i = 1; i < 300; i++) {
-     spin(CRGB::White, 1, i += 20);
-   }
-   // Stop it dead at the top and let it swing to the bottom on its own
-   pos = 0;
-   MomentumH = MomentumV = 0;
+void spinDown()
+{
+  for (int i = 1; i < 300; i++)
+  {
+    spin(CRGB::White, 1, i += 20);
+  }
+  // Stop it dead at the top and let it swing to the bottom on its own
+  pos = 0;
+  MomentumH = MomentumV = 0;
 }
 
 
 // utility function for feedback on mode changes.
-void spin(CRGB color, int count, int time) {
-  for (int j = 0; j < count; j++) {
-    for (int i = 0; i < NUM_LEDS; i++) {
+void spin(CRGB color, int count, int time)
+{
+  for (int j = 0; j < count; j++)
+  {
+    for (int i = 0; i < NUM_LEDS; i++)
+    {
       rightLense[i] = color;
       leftLense[i] = color;
       FastLED.show();
