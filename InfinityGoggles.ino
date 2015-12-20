@@ -39,15 +39,15 @@ float MomentumV = 0; // vertical component of pupil rotational inertia
 const float friction = 0.985; // frictional damping constant.  1.0 is no friction.
 const float swing = 20;  // arbitrary divisor for gravitational force
 const float gravity = 100;  // arbitrary divisor for lateral acceleration
-const float nod = 7.5; // accelerometer threshold for toggling modes
+const float gestureThreshold = -0.80; // accelerometer threshold for toggling modes
 
-long nodStart = 0;
-long nodTime = 2000;
+long gestureStart = 0;
+long gestureHoldTime = 3000;
 
 bool antiGravity = true;  // The pendulum will anti-gravitate to the top.
 bool mirroredEyes = false; // The left eye will mirror the right.
 
-const float halfWidth = 2; // half-width of pupil (in pixels)
+const float pupilRadius = 2; // half-width of pupil (in pixels)
 
 // Pi for calculations - not the raspberry type
 const float Pi = 3.14159;
@@ -70,11 +70,15 @@ void setup(void)
   FastLED.addLeds<APA102, DATAPIN_RIGHT, CLOCKPIN_RIGHT>(rightLense, NUM_LEDS);
 
   // Try to initialise
-  if (!lsm.begin()) { while (1); }
+  if (!lsm.begin())
+  {
+    while (1);
+  }
   setupSensor();
   resetModes();
 }
 
+int test = 0;
 // main processing loop
 void loop(void)
 {
@@ -84,7 +88,7 @@ void loop(void)
   CRGB color = selectColor(fabs(round(mag.magnetic.z * 100)));
 
   // Check for mode change commands
-  // CheckForNods(lsm);
+  CheckForGestures(accel);
 
   // apply a little frictional damping to keep things in control and prevent perpetual motion
   MomentumH *= friction;
@@ -117,14 +121,14 @@ void loop(void)
   while (round(pos) < 0) pos += NUM_LEDS;
   while (round(pos) > NUM_LEDS - 1) pos -= NUM_LEDS;
 
-  int lightOn[round(halfWidth * 2 + 1)];
+  int lightOn[round(pupilRadius * 2 + 1)];
   int lightIndex = 0;
-  for(int i = pos; i > pos - halfWidth; i--)
+  for(int i = pos; i > pos - pupilRadius; i--)
   {
     lightOn[lightIndex] = wrapAround(i);
     lightIndex++;
   }
-  for(int i = pos; i < pos + halfWidth; i++)
+  for(int i = pos; i < pos + pupilRadius; i++)
   {
     lightOn[lightIndex] = wrapAround(i);
     lightIndex++;
@@ -134,7 +138,7 @@ void loop(void)
     int rightIndex = i;
     int leftIndex = wrapAround(i - 10); // This is because the strips aren't installed in the same place
     boolean turnedOn = false;
-    for(int j = 0; j < (halfWidth * 2 + 1); j++)
+    for(int j = 0; j < (pupilRadius * 2 + 1); j++)
     {
       if(lightOn[j] == i)
       {
@@ -172,47 +176,39 @@ CRGB selectColor(float heading)
 }
 
 // monitor orientation for mode-change 'gestures'
-void CheckForNods(sensors_event_t event)
+void CheckForGestures(sensors_event_t accel)
 {
-  if (accel.acceleration.x > nod)
+  if (accel.acceleration.x < gestureThreshold)
   {
-    if (millis() - nodStart > nodTime)
+    if (millis() - gestureStart > gestureHoldTime)
     {
-      antiGravity = false;
-      nodStart = millis(); // reset timer
+      gestureStart = millis(); // reset timer
       spinDown();
-    }
-  }
-  else if (accel.acceleration.x < -(nod + 1))
-  {
-    if (millis() - nodStart > nodTime)
-    {
-      antiGravity = true;
-      spinUp();
-      nodStart = millis(); // reset timer
-    }
-  }
-  else if (accel.acceleration.y > nod)
-  {
-    if (millis() - nodStart > nodTime)
-    {
-      mirroredEyes = false;
-      spinDown();
-      nodStart = millis(); // reset timer
-    }
-  }
-  else if (accel.acceleration.y < -nod)
-  {
-    if (millis() - nodStart > nodTime)
-    {
-      mirroredEyes = true;
-      spinUp();
-      nodStart = millis(); // reset timer
+      gestureActivatedMode();
+      for(int i = 0; i < 100; i++)
+      {
+        delay(20);
+        Serial.println("gettin it");
+        lsm.getEvent(&accel, &mag, &gyro, &temp);
+        if(accel.acceleration.z > 0.70)
+        {
+          Serial.println("done did it");
+          antiGravity = false;
+          break;
+        }
+        if(accel.acceleration.z < -0.70)
+        {
+          Serial.println("done did it other");
+          antiGravity = true;
+          break;
+        }
+      }
+
     }
   }
   else     // no nods in progress
   {
-    nodStart = millis(); // reset timer
+    gestureStart = millis(); // reset timer
   }
 }
 
@@ -251,6 +247,19 @@ void spinDown()
   // Stop it dead at the top and let it swing to the bottom on its own
   pos = 0;
   MomentumH = MomentumV = 0;
+}
+
+void gestureActivatedMode() {
+  for(int i=0;i<NUM_LEDS;i++){
+    if(i%3==0){
+      rightLense[i] = CRGB(0,0,255);  
+      leftLense[i] = CRGB(0,0,255);
+    } else {
+      rightLense[i] = CRGB(0,0,0);  
+      leftLense[i] = CRGB(0,0,0);
+    }
+  }
+  FastLED.show();
 }
 
 
