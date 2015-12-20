@@ -44,6 +44,9 @@ const float gestureThreshold = -0.80; // accelerometer threshold for toggling mo
 long gestureStart = 0;
 long gestureHoldTime = 3000;
 
+int modeNumber = 0;
+
+bool pendulum = true;
 bool antiGravity = true;  // The pendulum will anti-gravitate to the top.
 bool mirroredEyes = false; // The left eye will mirror the right.
 
@@ -84,12 +87,31 @@ void loop(void)
 {
   // Read the magnetometer and determine the compass heading:
   lsm.getEvent(&accel, &mag, &gyro, &temp);
-
-  CRGB color = selectColor(fabs(round(mag.magnetic.z * 100)));
-
   // Check for mode change commands
-  CheckForGestures(accel);
+  checkForGestures(accel);
 
+  CRGB magHeadingBasedColor = convertHeadingToColor(fabs(round(mag.magnetic.z * 100)));
+
+  if(pendulum == true)
+  {
+    pendulumMode(magHeadingBasedColor);
+  }
+  else 
+  {
+    staticMode(magHeadingBasedColor);
+  }
+
+}
+
+void staticMode(CRGB color)
+{
+  fill_solid(&(rightLense[0]), NUM_LEDS, color);
+  fill_solid(&(leftLense[0]), NUM_LEDS, color);
+  FastLED.show();
+}
+
+void pendulumMode(CRGB color)
+{
   // apply a little frictional damping to keep things in control and prevent perpetual motion
   MomentumH *= friction;
   MomentumV *= friction;
@@ -154,6 +176,7 @@ void loop(void)
     }
   }
   FastLED.show();
+
 }
 
 int wrapAround(int value)
@@ -169,14 +192,14 @@ int wrapAround(int value)
   return value;
 }
 
-CRGB selectColor(float heading)
+CRGB convertHeadingToColor(float heading)
 {
   int convertedHeading = map(heading, 0, 51, 0, 255);
   return CHSV(convertedHeading, 255, 180);
 }
 
 // monitor orientation for mode-change 'gestures'
-void CheckForGestures(sensors_event_t accel)
+void checkForGestures(sensors_event_t accel)
 {
   if (accel.acceleration.x < gestureThreshold)
   {
@@ -184,26 +207,7 @@ void CheckForGestures(sensors_event_t accel)
     {
       gestureStart = millis(); // reset timer
       spinDown();
-      gestureActivatedMode();
-      for(int i = 0; i < 100; i++)
-      {
-        delay(20);
-        Serial.println("gettin it");
-        lsm.getEvent(&accel, &mag, &gyro, &temp);
-        if(accel.acceleration.z > 0.70)
-        {
-          Serial.println("done did it");
-          antiGravity = false;
-          break;
-        }
-        if(accel.acceleration.z < -0.70)
-        {
-          Serial.println("done did it other");
-          antiGravity = true;
-          break;
-        }
-      }
-
+      activateGestureModeSelect();
     }
   }
   else     // no nods in progress
@@ -223,6 +227,101 @@ void resetModes()
   spin(CRGB(0, 255, 0), 1, 250);
   spin(CRGB(0, 0, 255), 1, 250);
   spinUp();
+}
+
+void cycleModeForward()
+{
+  modeNumber++;
+  Serial.print("Forward to mode : ");
+  Serial.println(modeNumber);
+  setDisplayMode();
+}
+
+void cycleModeBack()
+{
+  modeNumber--;
+  Serial.print("Back to mode : ");
+  Serial.println(modeNumber);
+  setDisplayMode();
+}
+
+void setDisplayMode()
+{
+  int numberOfModes = 4;
+  if(modeNumber > numberOfModes)
+  {
+    modeNumber = 1;
+  }
+  if(modeNumber < 1)
+  {
+    modeNumber = numberOfModes;
+  }
+
+  Serial.print("Actually switching to mode : ");
+  Serial.println(modeNumber);
+
+  switch (modeNumber)
+  {
+    case 1:
+      pendulum = true;
+      antiGravity = true;
+      mirroredEyes = false;
+      break;
+    case 2:
+      pendulum = true;
+      antiGravity = false;
+      mirroredEyes = true;
+      break;
+    case 3:
+      pendulum = true;
+      antiGravity = true;
+      mirroredEyes = true;
+      break;
+    case 4: //Some preset pattern? How do?
+      Serial.println("Setting pendulum to false right fucking now!");
+      pendulum = false;
+      break;
+    default:
+      Serial.println("Oops, got into the default :()");
+      pendulum = true;
+      antiGravity = false;
+      mirroredEyes = false;
+      break;
+  }
+}
+
+void activateGestureModeSelect()
+{
+  for(int i = 0; i < NUM_LEDS; i++)
+  {
+    if(i % 3 == 0)
+    {
+      rightLense[i] = CRGB(0, 0, 255);
+      leftLense[i] = CRGB(0, 0, 255);
+    }
+    else
+    {
+      rightLense[i] = CRGB(0, 0, 0);
+      leftLense[i] = CRGB(0, 0, 0);
+    }
+  }
+  FastLED.show();
+  for(int i = 0; i < 100; i++)
+  {
+    delay(20);
+    lsm.getEvent(&accel, &mag, &gyro, &temp);
+    if(accel.acceleration.z > 0.70)
+    {
+      cycleModeForward();
+      break;
+    }
+    if(accel.acceleration.z < -0.70)
+    {
+      cycleModeBack();
+      break;
+    }
+  }
+
 }
 
 // gradual spin up
@@ -249,20 +348,6 @@ void spinDown()
   MomentumH = MomentumV = 0;
 }
 
-void gestureActivatedMode() {
-  for(int i=0;i<NUM_LEDS;i++){
-    if(i%3==0){
-      rightLense[i] = CRGB(0,0,255);  
-      leftLense[i] = CRGB(0,0,255);
-    } else {
-      rightLense[i] = CRGB(0,0,0);  
-      leftLense[i] = CRGB(0,0,0);
-    }
-  }
-  FastLED.show();
-}
-
-
 // utility function for feedback on mode changes.
 void spin(CRGB color, int count, int time)
 {
@@ -280,5 +365,7 @@ void spin(CRGB color, int count, int time)
     }
   }
 }
+
+
 
 
