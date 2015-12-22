@@ -10,12 +10,10 @@
 // Eye color varies with orientation of the magnetometer
 #include <Wire.h>
 #include <SPI.h>
-
 #include <Adafruit_Sensor.h>
 #include <Adafruit_LSM9DS0.h>
 #include <Adafruit_Simple_AHRS.h>
 #include <FastLED.h>
-
 
 #define DATAPIN_LEFT    0
 #define CLOCKPIN_LEFT   1
@@ -44,7 +42,7 @@ const float gestureThreshold = -0.80; // accelerometer threshold for toggling mo
 long gestureStart = 0;
 long gestureHoldTime = 3000;
 
-int modeNumber = 0;
+int modeNumber = 4;
 
 bool pendulum = true;
 bool antiGravity = true;  // The pendulum will anti-gravitate to the top.
@@ -54,18 +52,6 @@ const float pupilRadius = 2; // half-width of pupil (in pixels)
 
 // Pi for calculations - not the raspberry type
 const float Pi = 3.14159;
-
-void setupSensor()
-{
-  // 1.) Set the accelerometer range
-  lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_2G); // 2G, 4G, 6G, 8G, 16G
-
-  // 2.) Set the magnetometer sensitivity
-  lsm.setupMag(lsm.LSM9DS0_MAGGAIN_2GAUSS); //2GAUSS,4GAUSS,8GAUSS,12GAUSS
-
-  // 3.) Setup the gyroscope
-  lsm.setupGyro(lsm.LSM9DS0_GYROSCALE_245DPS); // 245DPS,500DPS,2000DPS
-}
 
 void setup(void)
 {
@@ -79,17 +65,32 @@ void setup(void)
   }
   setupSensor();
   resetModes();
+  setDisplayMode();
 }
 
-int test = 0;
-// main processing loop
+void setupSensor()
+{
+  // 1.) Set the accelerometer range
+  lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_2G); // 2G, 4G, 6G, 8G, 16G
+
+  // 2.) Set the magnetometer sensitivity
+  lsm.setupMag(lsm.LSM9DS0_MAGGAIN_2GAUSS); //2GAUSS,4GAUSS,8GAUSS,12GAUSS
+
+  // 3.) Setup the gyroscope. Options are: 245DPS,500DPS,2000DPS
+  lsm.setupGyro(lsm.LSM9DS0_GYROSCALE_245DPS);
+}
+
 void loop(void)
 {
   // Read the magnetometer and determine the compass heading:
   lsm.getEvent(&accel, &mag, &gyro, &temp);
+  
+//  Serial.println(accel.acceleration.x);
+  
   // Check for mode change commands
   checkForGestures(accel);
-
+  
+  // Get a color based off of direction 
   CRGB magHeadingBasedColor = convertHeadingToColor(fabs(round(mag.magnetic.z * 100)));
 
   if(pendulum == true)
@@ -98,16 +99,11 @@ void loop(void)
   }
   else 
   {
-    staticMode(magHeadingBasedColor);
+    shift(leftLense, NUM_LEDS, false);
+    shift(rightLense, NUM_LEDS, false);
+    FastLED.show();
   }
 
-}
-
-void staticMode(CRGB color)
-{
-  fill_solid(&(rightLense[0]), NUM_LEDS, color);
-  fill_solid(&(leftLense[0]), NUM_LEDS, color);
-  FastLED.show();
 }
 
 void pendulumMode(CRGB color)
@@ -173,6 +169,7 @@ void pendulumMode(CRGB color)
     {
       leftLense[leftIndex] = CRGB(0, 0, 0);
       rightLense[rightIndex] = CRGB(0, 0, 0);
+      FastLED.show();
     }
   }
   FastLED.show();
@@ -210,7 +207,7 @@ void checkForGestures(sensors_event_t accel)
       activateGestureModeSelect();
     }
   }
-  else     // no nods in progress
+  else
   {
     gestureStart = millis(); // reset timer
   }
@@ -232,19 +229,16 @@ void resetModes()
 void cycleModeForward()
 {
   modeNumber++;
-  Serial.print("Forward to mode : ");
-  Serial.println(modeNumber);
-  setDisplayMode();
 }
 
 void cycleModeBack()
 {
   modeNumber--;
-  Serial.print("Back to mode : ");
-  Serial.println(modeNumber);
-  setDisplayMode();
 }
 
+// Will update global variables on modeNumber change
+// Sets appropriate global variables, and sets any
+// static patterns that will be animated sequentially in the loop
 void setDisplayMode()
 {
   int numberOfModes = 4;
@@ -277,9 +271,9 @@ void setDisplayMode()
       antiGravity = true;
       mirroredEyes = true;
       break;
-    case 4: //Some preset pattern? How do?
-      Serial.println("Setting pendulum to false right fucking now!");
+    case 4: 
       pendulum = false;
+      lowKeyRainbow();
       break;
     default:
       Serial.println("Oops, got into the default :()");
@@ -313,11 +307,13 @@ void activateGestureModeSelect()
     if(accel.acceleration.z > 0.70)
     {
       cycleModeForward();
+      setDisplayMode();
       break;
     }
     if(accel.acceleration.z < -0.70)
     {
       cycleModeBack();
+      setDisplayMode();
       break;
     }
   }
@@ -365,7 +361,36 @@ void spin(CRGB color, int count, int time)
     }
   }
 }
+/********************************************************************
+ * These are static patterns that rely on a mthod like shift to 
+ * move them around one step at a time. As to not busy the
+ * arduino from checking for sensor input.
+ *******************************************************************/
+//Check out the memmove function to maybe do it more quickly
+//Also, if we dont want to pass the size, could technically do sizeof(strip)/sizeof(CRGB)
+void shift(CRGB strip[], int stripLength, bool changeDirection) {
+  CRGB wrapAroundPixel;
+  if (changeDirection == true) {
+    wrapAroundPixel = strip[stripLength - 1];
+    for (int i = stripLength - 1; i > 0; i--) {
+      strip[i] = strip[i - 1];
+    }
+    strip[0] = wrapAroundPixel;
+  } else {
+    wrapAroundPixel = strip[0];
+    for (int i = 0; i < stripLength; i++) {
+      strip[i] = strip[i + 1];
+    }
+    strip[stripLength - 1] = wrapAroundPixel;
+  }
+}
 
-
-
+void lowKeyRainbow()
+{
+  for(int i=0;i<NUM_LEDS;i++) {
+    leftLense[i] = CHSV(12.75*i, 255, 60);
+    rightLense[i] = CHSV(12.75*i, 255, 60);
+  }
+  FastLED.show();
+}
 
