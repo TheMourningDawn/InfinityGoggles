@@ -15,6 +15,8 @@
 #include <Adafruit_Simple_AHRS.h>
 #include <FastLED.h>
 
+FASTLED_USING_NAMESPACE;
+
 #define DATAPIN_LEFT    0
 #define CLOCKPIN_LEFT   1
 #define DATAPIN_RIGHT    6
@@ -23,6 +25,8 @@
 
 #define FRAMES_PER_SECOND  5
 #define BRIGHTNESS         120
+
+#define ARRAY_SIZE(A) (sizeof(A) / sizeof((A)[0]))
 
 CRGB leftLense[NUM_LEDS];
 CRGB rightLense[NUM_LEDS];
@@ -42,32 +46,49 @@ const float friction = 0.985; // frictional damping constant.  1.0 is no frictio
 const float swing = 20;  // arbitrary divisor for gravitational force
 const float gravity = 100;  // arbitrary divisor for lateral acceleration
 const float gestureThreshold = -0.80; // accelerometer threshold for toggling modes
+const float pupilRadius = 2; // half-width of pupil (in pixels)
 
 long gestureStart = 0;
-long gestureHoldTime = 3000;
+long gestureHoldTime = 2000;
 
-int modeNumber = 1;
-uint8_t gHue = 0;
+uint8_t hue = 0;
+uint8_t currentPatternNumber = 0; // Index number of which pattern is current
 
-bool pendulum = true;
-bool rotate = false;
-bool rainbow = false;
-bool antiGravity = true;  // The pendulum will anti-gravitate to the top.
-bool mirroredEyes = false; // The left eye will mirror the right.
 
-const float pupilRadius = 2; // half-width of pupil (in pixels)
+// List of patterns to cycle through.  Each is defined as a separate function below.
+typedef void (*SimplePattern)();
+
+typedef void (*Action)();
+
+typedef struct {
+    SimplePattern pattern;
+    Action action;
+} PatternDefinition;
+typedef PatternDefinition PatternDefinitionList[];
+
+const PatternDefinitionList patterns = {
+        {nothing,       pendulum},
+        {nothing,       pendulumAntiGravity},
+        {nothing,       pendulumMirrored},
+        {lowKeyRainbow, rotateClockwise},
+        {meteor,        rotateClockwise},
+        {nothing,       confetti}
+};
+
 
 void setup(void) {
     FastLED.addLeds<APA102, DATAPIN_LEFT, CLOCKPIN_LEFT>(leftLense, NUM_LEDS).setCorrection(TypicalLEDStrip);
     FastLED.addLeds<APA102, DATAPIN_RIGHT, CLOCKPIN_RIGHT>(rightLense, NUM_LEDS).setCorrection(TypicalLEDStrip);
     FastLED.setBrightness(BRIGHTNESS);
-    // Try to initialise
+
+    // Try to initialise the 9DOF
     if (!lsm.begin()) {
         while (1);
     }
+
+    // Intitialize the sensors and start with default pattern
     setupSensor();
-    resetModes();
-    setDisplayMode();
+    patterns[currentPatternNumber].pattern();
 }
 
 void setupSensor() {
@@ -79,36 +100,158 @@ void setupSensor() {
     lsm.setupGyro(lsm.LSM9DS0_GYROSCALE_245DPS);
 }
 
-int brightness = 180;
-bool swap = true;
-bool direction = false;
-
 void loop(void) {
     // Read the magnetometer and determine the compass heading:
     lsm.getEvent(&accel, &mag, &gyro, &temp);
-
     // Check for mode change commands
     checkForGestures(accel);
-    CRGB magHeadingBasedColor = convertHeadingToColor(fabs(round(mag.magnetic.z * 100)), 180);
-    if (pendulum == true) {
-        pendulumMode(magHeadingBasedColor);
-    }
-    else if (pendulum == false && rotate == true) {
-        shift(leftLense, NUM_LEDS, false);
-        shift(rightLense, NUM_LEDS, false);
-        delay(30);
-        FastLED.show();
-    } else if(pendulum == false && rotate == false && rainbow == false) {
-        confetti();
-        FastLED.show();
-        FastLED.delay(1000 / FRAMES_PER_SECOND);
-        gHue++;
-    }
 
-    EVERY_N_MILLISECONDS(20) { gHue++; } // slowly cycle the "base color" through the rainbow
+    // Call the current pattern function once, updating the 'leds' array
+    patterns[currentPatternNumber].action();
 }
 
-void pendulumMode(CRGB color) {
+void nextPattern() {
+    currentPatternNumber = (currentPatternNumber + 1) % ARRAY_SIZE(patterns);
+    patterns[currentPatternNumber].pattern();
+}
+
+void previousPattern() {
+    currentPatternNumber = abs((currentPatternNumber - 1)) % ARRAY_SIZE(patterns);
+    patterns[currentPatternNumber].pattern();
+}
+
+//Constrains a number to NUM_LEDS
+int wrapAround(int value) {
+    if (value < 0) {
+        return value + NUM_LEDS;
+    }
+    if (value > NUM_LEDS - 1) {
+        return value - NUM_LEDS;
+    }
+    return value;
+}
+
+CRGB convertHeadingToColor(float heading, int brightness) {
+    int convertedHeading = map(heading, 0, 51, 0, 255);
+    return CHSV(convertedHeading, 255, brightness);
+}
+
+// monitor orientation for mode-change 'gestures'
+void checkForGestures(sensors_event_t accel) {
+    if (accel.acceleration.x < gestureThreshold) {
+        if (millis() - gestureStart > gestureHoldTime) {
+            gestureStart = millis(); // reset timer
+            spinDown();
+            activateGestureModeSelect();
+        }
+    }
+    else {
+        gestureStart = millis(); // reset timer
+    }
+}
+
+void activateGestureModeSelect() {
+    int hueCounter = 1;
+    for (int i = 0; i < NUM_LEDS; i++) {
+        if (i < round(NUM_LEDS / 5 * currentPatternNumber)) {
+            if (i % round(NUM_LEDS / 5) == 0) {
+                hueCounter += 50;
+            }
+            rightLense[i] = CHSV(hueCounter, 255, 100);
+            leftLense[i] = CHSV(hueCounter, 255, 100);
+        }
+        else {
+            rightLense[i] = CRGB(0, 0, 0);
+            leftLense[i] = CRGB(0, 0, 0);
+        }
+    }
+    FastLED.show();
+    for (int i = 0; i < 100; i++) {
+        delay(20);
+        lsm.getEvent(&accel, &mag, &gyro, &temp);
+        if (accel.acceleration.z > 0.70) {
+            previousPattern();
+            break;
+        }
+        if (accel.acceleration.z < -0.70) {
+            nextPattern();
+            break;
+        }
+    }
+}
+
+
+/********************************************************************
+ * ACTIONS:
+ * These are movement patterns that alter the existing pattern in
+ * some way. All can be used as an 'action' type
+ *******************************************************************/
+//TODO:Check out the memmove function to maybe do it more quickly
+//Also, if we dont want to pass the size, could technically do sizeof(strip)/sizeof(CRGB)
+void rotateClockwise() {
+    shift(leftLense, NUM_LEDS, false);
+    shift(rightLense, NUM_LEDS, false);
+    delay(30);
+    FastLED.show();
+}
+
+void rotateCounterClockwise() {
+    shift(leftLense, NUM_LEDS, true);
+    shift(rightLense, NUM_LEDS, true);
+    delay(30);
+    FastLED.show();
+}
+
+void shift(CRGB strip[], int stripLength, bool changeDirection) {
+    CRGB wrapAroundPixel;
+    if (changeDirection == true) {
+        wrapAroundPixel = strip[stripLength - 1];
+        for (int i = stripLength - 1; i > 0; i--) {
+            strip[i] = strip[i - 1];
+        }
+        strip[0] = wrapAroundPixel;
+    }
+    else {
+        wrapAroundPixel = strip[0];
+        for (int i = 0; i < stripLength; i++) {
+            strip[i] = strip[i + 1];
+        }
+        strip[stripLength - 1] = wrapAroundPixel;
+    }
+}
+
+void confetti() {
+    // random colored speckles that blink in and fade smoothly
+    fadeToBlackBy(leftLense, NUM_LEDS, 25);
+    fadeToBlackBy(rightLense, NUM_LEDS, 25);
+    uint8_t pos = random16(NUM_LEDS);
+
+    leftLense[pos] += CHSV(hue + random8(64), 200, 255);
+    rightLense[pos] += CHSV(hue + random8(64), 200, 255);
+
+    FastLED.show();
+    FastLED.delay(1000 / FRAMES_PER_SECOND);
+    hue++;
+    EVERY_N_MILLISECONDS(20)
+    { hue++; }
+}
+
+void pendulum() {
+    CRGB magHeadingBasedColor = convertHeadingToColor(fabs(round(mag.magnetic.z * 100)), 180);
+    pendulumMode(magHeadingBasedColor, false, false);
+}
+
+void pendulumAntiGravity() {
+    CRGB magHeadingBasedColor = convertHeadingToColor(fabs(round(mag.magnetic.z * 100)), 180);
+    pendulumMode(magHeadingBasedColor, true, false);
+}
+
+void pendulumMirrored() {
+    CRGB magHeadingBasedColor = convertHeadingToColor(fabs(round(mag.magnetic.z * 100)), 180);
+    pendulumMode(magHeadingBasedColor, false, true);
+}
+
+void pendulumMode(CRGB color, bool antiGravity, bool mirroredEyes) {
     // apply a little frictional damping to keep things in control and prevent perpetual motion
     MomentumH *= friction;
     MomentumV *= friction;
@@ -167,254 +310,9 @@ void pendulumMode(CRGB color) {
     FastLED.show();
 }
 
-int wrapAround(int value) {
-    if (value < 0) {
-        return value + NUM_LEDS;
-    }
-    if (value > NUM_LEDS - 1) {
-        return value - NUM_LEDS;
-    }
-    return value;
-}
-
-CRGB convertHeadingToColor(float heading, int brightness) {
-    int convertedHeading = map(heading, 0, 51, 0, 255);
-    return CHSV(convertedHeading, 255, brightness);
-}
-
-// monitor orientation for mode-change 'gestures'
-void checkForGestures(sensors_event_t accel) {
-    if (accel.acceleration.x < gestureThreshold) {
-        if (millis() - gestureStart > gestureHoldTime) {
-            gestureStart = millis(); // reset timer
-            spinDown();
-            activateGestureModeSelect();
-        }
-    }
-    else {
-        gestureStart = millis(); // reset timer
-    }
-}
-
-// Reset to default
-void resetModes() {
-    antiGravity = true;
-    mirroredEyes = false;
-
-    /// spin-up
-    spin(CRGB(255, 0, 0), 1, 250);
-    spin(CRGB(0, 255, 0), 1, 250);
-    spin(CRGB(0, 0, 255), 1, 250);
-    spinUp();
-}
-
-void cycleModeForward() {
-    modeNumber++;
-}
-
-void cycleModeBack() {
-    modeNumber--;
-}
-
-// Will update global variables on modeNumber change
-// Sets appropriate global variables, and sets any
-// static patterns that will be animated sequentially in the loop
-void setDisplayMode() {
-    int numberOfModes = 6;
-    if (modeNumber > numberOfModes) {
-        modeNumber = 1;
-    }
-    if (modeNumber < 1) {
-        modeNumber = numberOfModes;
-    }
-
-    Serial.print("Actually switching to mode: ");
-    Serial.println(modeNumber);
-
-    switch (modeNumber) {
-        case 1:
-            rotate = false;
-            pendulum = true;
-            antiGravity = true;
-            mirroredEyes = false;
-            break;
-        case 2:
-            rotate = false;
-            pendulum = true;
-            antiGravity = false;
-            mirroredEyes = true;
-            break;
-        case 3:
-            rotate = false;
-            pendulum = true;
-            rainbow = false;
-            antiGravity = true;
-            mirroredEyes = true;
-            break;
-        case 4:
-            rainbow = true;
-            rotate = true;
-            pendulum = false;
-            lowKeyRainbow();
-            break;
-        case 5:
-            rotate = true;
-            pendulum = false;
-            rainbow = false;
-            clearStrip();
-            meteor(leftLense, 0, 9, 200);
-            meteor(rightLense, 0, 9, 200);
-            break;
-        case 6:
-            rotate = false;
-            pendulum = false;
-            clearStrip();
-            break;
-        default:
-            Serial.println("Oops, got into the default :()");
-            pendulum = true;
-            antiGravity = false;
-            mirroredEyes = false;
-            break;
-    }
-}
-
-void activateGestureModeSelect() {
-    int hueCounter = 1;
-    for (int i = 0; i < NUM_LEDS; i++) {
-        if (i < round(NUM_LEDS / 5 * modeNumber)) {
-            if (i % round(NUM_LEDS / 5) == 0) {
-                hueCounter += 50;
-            }
-            rightLense[i] = CHSV(hueCounter, 255, 100);
-            leftLense[i] = CHSV(hueCounter, 255, 100);
-        }
-        else {
-            rightLense[i] = CRGB(0, 0, 0);
-            leftLense[i] = CRGB(0, 0, 0);
-        }
-    }
-    FastLED.show();
-    for (int i = 0; i < 100; i++) {
-        delay(20);
-        lsm.getEvent(&accel, &mag, &gyro, &temp);
-        if (accel.acceleration.z > 0.70) {
-            cycleModeBack();
-            setDisplayMode();
-            break;
-        }
-        if (accel.acceleration.z < -0.70) {
-            cycleModeForward();
-            setDisplayMode();
-            break;
-        }
-    }
-}
-
-// gradual spin up
-void spinUp() {
-    for (int i = 300; i > 0; i -= 20) {
-        spin(CRGB::White, 1, i);
-    }
-    pos = 0;
-    // leave it with some momentum and let it 'coast' to a stop
-    MomentumH = 3;
-}
-
-// Gradual spin down
-void spinDown() {
-    for (int i = 1; i < 300; i += 20) {
-        spin(CRGB::White, 1, i);
-    }
-    // Stop it dead at the top and let it swing to the bottom on its own
-    pos = 0;
-    MomentumH = MomentumV = 0;
-}
-
-// utility function for feedback on mode changes.
-void spin(CRGB color, int count, int time) {
-    for (int j = 0; j < count; j++) {
-        for (int i = 0; i < NUM_LEDS; i++) {
-            rightLense[i] = color;
-            leftLense[i] = color;
-            rightLense[i].fadeLightBy(180);
-            leftLense[i].fadeLightBy(180);
-            FastLED.show();
-            delay(max(time / NUM_LEDS, 1));
-            leftLense[i] = CRGB::Black;
-            rightLense[i] = CRGB::Black;
-            FastLED.show();
-        }
-    }
-}
-
-//Check out the memmove function to maybe do it more quickly
-//Also, if we dont want to pass the size, could technically do sizeof(strip)/sizeof(CRGB)
-void shift(CRGB strip[], int stripLength, bool changeDirection) {
-    CRGB wrapAroundPixel;
-    if (changeDirection == true) {
-        wrapAroundPixel = strip[stripLength - 1];
-        for (int i = stripLength - 1; i > 0; i--) {
-            strip[i] = strip[i - 1];
-        }
-        strip[0] = wrapAroundPixel;
-    }
-    else {
-        wrapAroundPixel = strip[0];
-        for (int i = 0; i < stripLength; i++) {
-            strip[i] = strip[i + 1];
-        }
-        strip[stripLength - 1] = wrapAroundPixel;
-    }
-}
-
-/********************************************************************
- * These are static patterns that rely on a method like shift to
- * move them around one step at a time. As to not busy the
- * arduino from checking for sensor input.
- *******************************************************************/
-
-void clearStrip() {
-    for (int i = 0; i < NUM_LEDS; i++) {
-        leftLense[i] = CRGB(0, 0, 0);
-        rightLense[i] = CRGB(0, 0, 0);
-    }
-}
-
-void lowKeyRainbow() {
-    for (int i = 0; i < NUM_LEDS; i++) {
-        leftLense[i] = CHSV(12.75 * i, 255, 60);
-        rightLense[i] = CHSV(12.75 * i, 255, 60);
-    }
-    FastLED.show();
-}
-
-void meteor(CRGB strip[], int meteorBodyPixel, int tailLength, int fade) {
-    int fadeSpectrum = fade;
-    int fadeIncrement = (256 - fade) / tailLength;
-
-    lsm.getEvent(&accel, &mag, &gyro, &temp);
-    CRGB magHeadingBasedColor = convertHeadingToColor(fabs(round(mag.magnetic.z * 100)), 180);
-
-    for (int i = 0; i < tailLength; i++) {
-        strip[i] = magHeadingBasedColor;
-        strip[i].fadeLightBy(fadeSpectrum);
-        fadeSpectrum += fadeIncrement;
-    }
-
-    FastLED.show();
-}
-
-void confetti() {
-    // random colored speckles that blink in and fade smoothly
-    fadeToBlackBy(leftLense, NUM_LEDS, 25);
-    fadeToBlackBy(rightLense, NUM_LEDS, 25);
-    uint8_t pos = random16(NUM_LEDS);
-
-    leftLense[pos] += CHSV(gHue + random8(64), 200, 255);
-    rightLense[pos] += CHSV(gHue + random8(64), 200, 255);
-}
-
+int brightness = 180;
+bool swap = true;
+bool direction = false;
 void pulse(CRGB strip[], int center, int radius) {
     if (swap == true) {
         swap = false;
@@ -458,6 +356,96 @@ void pulse(CRGB strip[], int center, int radius) {
             if (swap == false) { swap = true; }
             else if (swap == true) { swap = false; }
             clearStrip();
+        }
+    }
+}
+
+/********************************************************************
+ * SimplePatterns:
+ * These are static patterns that rely on a method like shift to
+ * move them around one step at a time. As to not busy the
+ * arduino from checking for sensor input.
+ *******************************************************************/
+//TODO: Just use clearStrip instead...? or maybe this'll be useful?
+void nothing() {
+    //Do nothing...
+}
+
+void clearStrip() {
+    for (int i = 0; i < NUM_LEDS; i++) {
+        leftLense[i] = CRGB(0, 0, 0);
+        rightLense[i] = CRGB(0, 0, 0);
+    }
+}
+
+void lowKeyRainbow() {
+    for (int i = 0; i < NUM_LEDS; i++) {
+        leftLense[i] = CHSV(12.75 * i, 255, 60);
+        rightLense[i] = CHSV(12.75 * i, 255, 60);
+    }
+    FastLED.show();
+}
+
+void meteor() {
+    clearStrip();
+    meteor(leftLense, 0, 9, 200);
+    meteor(rightLense, 0, 9, 200);
+    FastLED.show();
+}
+
+void meteor(CRGB strip[], int meteorBodyPixel, int tailLength, int fade) {
+    int fadeSpectrum = fade;
+    int fadeIncrement = (256 - fade) / tailLength;
+
+    lsm.getEvent(&accel, &mag, &gyro, &temp);
+    CRGB magHeadingBasedColor = convertHeadingToColor(fabs(round(mag.magnetic.z * 100)), 180);
+
+    for (int i = 0; i < tailLength; i++) {
+        strip[i] = magHeadingBasedColor;
+        strip[i].fadeLightBy(fadeSpectrum);
+        fadeSpectrum += fadeIncrement;
+    }
+}
+
+
+/********************************************************************
+ * These animations that hold up the loop, so you wont be able to
+ * check for gestures, or anything of the such.
+ *******************************************************************/
+
+// gradual spin up
+void spinUp() {
+    for (int i = 300; i > 0; i -= 20) {
+        spin(CRGB::White, 1, i);
+    }
+    pos = 0;
+    // leave it with some momentum and let it 'coast' to a stop
+    MomentumH = 3;
+}
+
+// Gradual spin down
+void spinDown() {
+    for (int i = 1; i < 300; i += 20) {
+        spin(CRGB::White, 1, i);
+    }
+    // Stop it dead at the top and let it swing to the bottom on its own
+    pos = 0;
+    MomentumH = MomentumV = 0;
+}
+
+// utility function for feedback on mode changes.
+void spin(CRGB color, int count, int time) {
+    for (int j = 0; j < count; j++) {
+        for (int i = 0; i < NUM_LEDS; i++) {
+            rightLense[i] = color;
+            leftLense[i] = color;
+            rightLense[i].fadeLightBy(180);
+            leftLense[i].fadeLightBy(180);
+            FastLED.show();
+            delay(max(time / NUM_LEDS, 1));
+            leftLense[i] = CRGB::Black;
+            rightLense[i] = CRGB::Black;
+            FastLED.show();
         }
     }
 }
