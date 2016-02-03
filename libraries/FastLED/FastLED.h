@@ -1,7 +1,7 @@
 #ifndef __INC_FASTSPI_LED2_H
 #define __INC_FASTSPI_LED2_H
 
-// #define NO_CORRECTION 1
+// #define NO_CORRECTION 17
 // #define NO_DITHERING 1
 
 #define xstr(s) str(s)
