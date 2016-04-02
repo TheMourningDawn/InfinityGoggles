@@ -15,7 +15,7 @@
 #include <Adafruit_Simple_AHRS.h>
 #include <FastLED.h>
 
-FASTLED_USING_NAMESPACE;
+//FASTLED_USING_NAMESPACE;
 
 #define DATAPIN_LEFT    0
 #define CLOCKPIN_LEFT   1
@@ -49,7 +49,7 @@ const float gestureThreshold = -0.80; // accelerometer threshold for toggling mo
 const float pupilRadius = 2; // half-width of pupil (in pixels)
 
 long gestureStart = 0;
-long gestureHoldTime = 2000;
+long gestureHoldTime = 1500;
 
 uint8_t hue = 0;
 uint8_t currentPatternNumber = 0; // Index number of which pattern is current
@@ -69,10 +69,11 @@ typedef PatternDefinition PatternDefinitionList[];
 const PatternDefinitionList patterns = {
         {nothing,       pendulum},
         {nothing,       pendulumAntiGravity},
-        {nothing,       pendulumMirrored},
+        {nothing,       bpm},
+        {nothing,       juggle},
+        {nothing,       sinelon},
         {lowKeyRainbow, rotateClockwise},
-        {meteor,        rotateClockwise},
-        {nothing,       confetti}
+        {meteor,        rotateClockwise}
 };
 
 
@@ -111,22 +112,26 @@ void loop(void) {
 }
 
 void nextPattern() {
-    currentPatternNumber = (currentPatternNumber + 1) % ARRAY_SIZE(patterns);
+    currentPatternNumber = wrapAround(currentPatternNumber + 1, ARRAY_SIZE(patterns));
     patterns[currentPatternNumber].pattern();
 }
 
 void previousPattern() {
-    currentPatternNumber = abs((currentPatternNumber - 1)) % ARRAY_SIZE(patterns);
+    currentPatternNumber = wrapAround(currentPatternNumber - 1, ARRAY_SIZE(patterns));
     patterns[currentPatternNumber].pattern();
 }
 
-//Constrains a number to NUM_LEDS
+//Constrains a number to to range 0-maxValue exclusive
 int wrapAround(int value) {
+    return wrapAround(value, NUM_LEDS);
+}
+
+int wrapAround(int value, int maxValue) {
     if (value < 0) {
-        return value + NUM_LEDS;
+        return value + maxValue;
     }
     if (value > NUM_LEDS - 1) {
-        return value - NUM_LEDS;
+        return value - maxValue;
     }
     return value;
 }
@@ -141,7 +146,6 @@ void checkForGestures(sensors_event_t accel) {
     if (accel.acceleration.x < gestureThreshold) {
         if (millis() - gestureStart > gestureHoldTime) {
             gestureStart = millis(); // reset timer
-            spinDown();
             activateGestureModeSelect();
         }
     }
@@ -151,29 +155,36 @@ void checkForGestures(sensors_event_t accel) {
 }
 
 void activateGestureModeSelect() {
-    int hueCounter = 1;
-    for (int i = 0; i < NUM_LEDS; i++) {
-        if (i < round(NUM_LEDS / 5 * currentPatternNumber)) {
-            if (i % round(NUM_LEDS / 5) == 0) {
-                hueCounter += 50;
-            }
-            rightLense[i] = CHSV(hueCounter, 255, 100);
-            leftLense[i] = CHSV(hueCounter, 255, 100);
-        }
-        else {
-            rightLense[i] = CRGB(0, 0, 0);
-            leftLense[i] = CRGB(0, 0, 0);
-        }
-    }
+    uint8_t hueCounter = 1;
+    clearStrip();
     FastLED.show();
+    int ledsPerSection = round(NUM_LEDS / ARRAY_SIZE(patterns));
+    for (int i = 0; i < currentPatternNumber + 1; i++) {
+        int sectionStartPixel = i * ledsPerSection;
+        turnSectionOn(CHSV(hueCounter, 200, 100), ledsPerSection, sectionStartPixel);
+        FastLED.show();
+        hueCounter += round(255 / ARRAY_SIZE(patterns));
+        delay(250);
+    }
     for (int i = 0; i < 100; i++) {
-        delay(20);
+        delay(25);
         lsm.getEvent(&accel, &mag, &gyro, &temp);
         if (accel.acceleration.z > 0.70) {
+            turnSectionOff(ledsPerSection, ledsPerSection * (currentPatternNumber));
+            if (currentPatternNumber - 1 == 255) {
+                clearStrip();
+            }
+            blinkSection(CHSV(hueCounter - 2 * round(255 / ARRAY_SIZE(patterns)), 200, 100), ledsPerSection,
+                         ledsPerSection * (currentPatternNumber - 1), 5, 150);
             previousPattern();
             break;
         }
         if (accel.acceleration.z < -0.70) {
+            if (currentPatternNumber + 1 == ARRAY_SIZE(patterns)) {
+                clearStrip();
+            }
+            blinkSection(CHSV(hueCounter + round(255 / ARRAY_SIZE(patterns)), 200, 100), ledsPerSection,
+                         ledsPerSection * (currentPatternNumber + 1), 5, 150);
             nextPattern();
             break;
         }
@@ -220,20 +231,62 @@ void shift(CRGB strip[], int stripLength, bool changeDirection) {
     }
 }
 
+// random colored speckles that blink in and fade smoothly...but it sucks
 void confetti() {
-    // random colored speckles that blink in and fade smoothly
     fadeToBlackBy(leftLense, NUM_LEDS, 25);
     fadeToBlackBy(rightLense, NUM_LEDS, 25);
     uint8_t pos = random16(NUM_LEDS);
 
-    leftLense[pos] += CHSV(hue + random8(64), 200, 255);
-    rightLense[pos] += CHSV(hue + random8(64), 200, 255);
+    leftLense[pos] += CHSV(hue + random8(64), 200, 200);
+    rightLense[pos] += CHSV(hue + random8(64), 200, 200);
 
     FastLED.show();
     FastLED.delay(1000 / FRAMES_PER_SECOND);
     hue++;
     EVERY_N_MILLISECONDS(20)
     { hue++; }
+}
+
+void bpm() {
+    // colored stripes pulsing at a defined Beats-Per-Minute (BPM)
+    uint8_t BeatsPerMinute = 120;
+    CRGBPalette16 palette = PartyColors_p;
+    uint8_t beat = beatsin8(BeatsPerMinute, 64, 255);
+    for (int i = 0; i < NUM_LEDS; i++) { //9948
+        rightLense[i] = ColorFromPalette(palette, hue + (i * 2), beat - hue + (i * 8));
+        leftLense[i] = ColorFromPalette(palette, hue + (i * 2), beat - hue + (i * 8));
+    }
+    FastLED.show();
+    EVERY_N_MILLISECONDS( 20 ) { hue++; } // slowly cycle the "base color" through the rainbow
+}
+
+void sinelon()
+{
+    // a colored dot sweeping back and forth, with fading trails
+    fadeToBlackBy( rightLense, NUM_LEDS, 20);
+    fadeToBlackBy( leftLense, NUM_LEDS, 20);
+    int pos = beatsin16(13,0,NUM_LEDS);
+    rightLense[pos] += CHSV( hue, 200, 192);
+    leftLense[pos] += CHSV( hue, 200, 192);
+
+    FastLED.show();
+    EVERY_N_MILLISECONDS( 20 ) { hue++; } // slowly cycle the "base color" through the rainbow
+}
+
+
+void juggle() {
+    // eight colored dots, weaving in and out of sync with each other
+    fadeToBlackBy( rightLense, NUM_LEDS, 20);
+    fadeToBlackBy( leftLense, NUM_LEDS, 20);
+    byte dothue = 0;
+    for( int i = 0; i < 8; i++) {
+        rightLense[beatsin16(i+7,0,NUM_LEDS)] |= CHSV(dothue, 200, 180);
+        leftLense[beatsin16(i+7,0,NUM_LEDS)] |= CHSV(dothue, 200, 180);
+        dothue += 32;
+    }
+
+    FastLED.show();
+    EVERY_N_MILLISECONDS( 20 ) { hue++; } // slowly cycle the "base color" through the rainbow
 }
 
 void pendulum() {
@@ -313,6 +366,7 @@ void pendulumMode(CRGB color, bool antiGravity, bool mirroredEyes) {
 int brightness = 180;
 bool swap = true;
 bool direction = false;
+
 void pulse(CRGB strip[], int center, int radius) {
     if (swap == true) {
         swap = false;
@@ -321,7 +375,6 @@ void pulse(CRGB strip[], int center, int radius) {
     if (direction == false) {
         fadeAmount = -fadeAmount;
     }
-    Serial.println(fadeAmount);
     lsm.getEvent(&accel, &mag, &gyro, &temp);
     CRGB magHeadingBasedColor = convertHeadingToColor(fabs(round(mag.magnetic.z * 100)), 180);
     int tempBrightness = brightness;
@@ -448,4 +501,42 @@ void spin(CRGB color, int count, int time) {
             FastLED.show();
         }
     }
+}
+
+void blinkSection(CRGB color, int count, int startPixel, int numberOfBlinks, int blinkDelay) {
+    for (int i = 0; i < numberOfBlinks; i++) {
+        turnSectionOn(color, count, startPixel);
+        FastLED.show();
+        delay(blinkDelay);
+        turnSectionOff(count, startPixel);
+        FastLED.show();
+        delay(blinkDelay);
+    }
+}
+
+void turnSectionOn(CRGB color, int count, int startPixel) {
+    for (int i = startPixel; i < startPixel + count; i++) {
+        int rightIndex = wrapAround(i);
+        int leftIndex = wrapAround(i - 10);
+        rightLense[rightIndex] = color;
+        leftLense[leftIndex] = color;
+        if (rightIndex + 1 == NUM_LEDS - 1) {
+            rightLense[rightIndex + 1] = color;
+            leftLense[wrapAround(leftIndex + 1)] = color;
+        }
+    }
+}
+
+void turnSectionOff(int count, int startPixel) {
+    for (int i = startPixel; i < startPixel + count; i++) {
+        int rightIndex = wrapAround(i);
+        int leftIndex = wrapAround(i - 10);
+        rightLense[rightIndex] = CRGB::Black;
+        leftLense[leftIndex] = CRGB::Black;
+        if (rightIndex + 1 == NUM_LEDS - 1) {
+            rightLense[rightIndex + 1] = CRGB::Black;
+            leftLense[wrapAround(leftIndex + 1)] = CRGB::Black;
+        }
+    }
+    FastLED.show();
 }
