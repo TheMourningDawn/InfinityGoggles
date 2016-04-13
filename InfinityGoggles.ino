@@ -111,7 +111,7 @@ int wrapAround(int value, int maxValue) {
     if (value < 0) {
         return value + maxValue;
     }
-    if (value > NUM_LEDS - 1) {
+    if (value > maxValue - 1) {
         return value - maxValue;
     }
     return value;
