@@ -1,10 +1,3 @@
-// Googly Eye Goggles
-// By Bill Earl
-// For Adafruit Industries
-// Edited by
-// Charlie Hendricks
-// because I want what I want?
-//
 // The googly eye effect is based on a physical model of a pendulum.
 // The pendulum motion is driven by accelerations in 2 axis.
 // Eye color varies with orientation of the magnetometer
@@ -15,13 +8,11 @@
 #include <Adafruit_Simple_AHRS.h>
 #include <FastLED.h>
 
-//FASTLED_USING_NAMESPACE;
-
 #define DATAPIN_LEFT    0
 #define CLOCKPIN_LEFT   1
 #define DATAPIN_RIGHT    6
 #define CLOCKPIN_RIGHT   9
-#define NUM_LEDS 21 //Number of LEDS per lense
+#define NUM_LEDS 21
 
 #define FRAMES_PER_SECOND  5
 #define BRIGHTNESS         120
@@ -49,13 +40,11 @@ const float gestureThreshold = -0.80; // accelerometer threshold for toggling mo
 const float pupilRadius = 2; // half-width of pupil (in pixels)
 
 long gestureStart = 0;
-long gestureHoldTime = 1500;
+long gestureHoldTime = 1700;
 
 uint8_t hue = 0;
-uint8_t currentPatternNumber = 0; // Index number of which pattern is current
+uint8_t currentPatternNumber = 1;
 
-
-// List of patterns to cycle through.  Each is defined as a separate function below.
 typedef void (*SimplePattern)();
 
 typedef void (*Action)();
@@ -82,32 +71,24 @@ void setup(void) {
     FastLED.addLeds<APA102, DATAPIN_RIGHT, CLOCKPIN_RIGHT>(rightLense, NUM_LEDS).setCorrection(TypicalLEDStrip);
     FastLED.setBrightness(BRIGHTNESS);
 
-    // Try to initialise the 9DOF
-    if (!lsm.begin()) {
-        while (1);
-    }
-
-    // Intitialize the sensors and start with default pattern
     setupSensor();
     patterns[currentPatternNumber].pattern();
 }
 
 void setupSensor() {
-    // 1.) Set the accelerometer range
+    if (!lsm.begin()) {
+        while (1);
+    }
     lsm.setupAccel(lsm.LSM9DS0_ACCELRANGE_2G); // 2G, 4G, 6G, 8G, 16G
-    // 2.) Set the magnetometer sensitivity
     lsm.setupMag(lsm.LSM9DS0_MAGGAIN_2GAUSS); //2GAUSS,4GAUSS,8GAUSS,12GAUSS
-    // 3.) Setup the gyroscope. Options are: 245DPS,500DPS,2000DPS
-    lsm.setupGyro(lsm.LSM9DS0_GYROSCALE_245DPS);
+    lsm.setupGyro(lsm.LSM9DS0_GYROSCALE_245DPS); //245DPS,500DPS,2000DPS
 }
 
 void loop(void) {
-    // Read the magnetometer and determine the compass heading:
     lsm.getEvent(&accel, &mag, &gyro, &temp);
-    // Check for mode change commands
+
     checkForGestures(accel);
 
-    // Call the current pattern function once, updating the 'leds' array
     patterns[currentPatternNumber].action();
 }
 
@@ -145,12 +126,12 @@ CRGB convertHeadingToColor(float heading, int brightness) {
 void checkForGestures(sensors_event_t accel) {
     if (accel.acceleration.x < gestureThreshold) {
         if (millis() - gestureStart > gestureHoldTime) {
-            gestureStart = millis(); // reset timer
+            gestureStart = millis();
             activateGestureModeSelect();
         }
     }
     else {
-        gestureStart = millis(); // reset timer
+        gestureStart = millis();
     }
 }
 
@@ -198,7 +179,6 @@ void activateGestureModeSelect() {
  * some way. All can be used as an 'action' type
  *******************************************************************/
 //TODO:Check out the memmove function to maybe do it more quickly
-//Also, if we dont want to pass the size, could technically do sizeof(strip)/sizeof(CRGB)
 void rotateClockwise() {
     shift(leftLense, NUM_LEDS, false);
     shift(rightLense, NUM_LEDS, false);
@@ -257,36 +237,38 @@ void bpm() {
         leftLense[i] = ColorFromPalette(palette, hue + (i * 2), beat - hue + (i * 8));
     }
     FastLED.show();
-    EVERY_N_MILLISECONDS( 20 ) { hue++; } // slowly cycle the "base color" through the rainbow
+    EVERY_N_MILLISECONDS(20)
+    { hue++; } // slowly cycle the "base color" through the rainbow
 }
 
-void sinelon()
-{
-    // a colored dot sweeping back and forth, with fading trails
-    fadeToBlackBy( rightLense, NUM_LEDS, 20);
-    fadeToBlackBy( leftLense, NUM_LEDS, 20);
-    int pos = beatsin16(13,0,NUM_LEDS);
-    rightLense[pos] += CHSV( hue, 200, 192);
-    leftLense[pos] += CHSV( hue, 200, 192);
+// a colored dot sweeping back and forth, with fading trails
+void sinelon() {
+    fadeToBlackBy(rightLense, NUM_LEDS, 20);
+    fadeToBlackBy(leftLense, NUM_LEDS, 20);
+    int pos = beatsin16(13, 0, NUM_LEDS);
+    rightLense[pos] += CHSV(hue, 200, 192);
+    leftLense[pos] += CHSV(hue, 200, 192);
 
     FastLED.show();
-    EVERY_N_MILLISECONDS( 20 ) { hue++; } // slowly cycle the "base color" through the rainbow
+    EVERY_N_MILLISECONDS(20)
+    { hue++; } // slowly cycle the "base color" through the rainbow
 }
 
 
 void juggle() {
     // eight colored dots, weaving in and out of sync with each other
-    fadeToBlackBy( rightLense, NUM_LEDS, 20);
-    fadeToBlackBy( leftLense, NUM_LEDS, 20);
+    fadeToBlackBy(rightLense, NUM_LEDS, 20);
+    fadeToBlackBy(leftLense, NUM_LEDS, 20);
     byte dothue = 0;
-    for( int i = 0; i < 8; i++) {
-        rightLense[beatsin16(i+7,0,NUM_LEDS)] |= CHSV(dothue, 200, 180);
-        leftLense[beatsin16(i+7,0,NUM_LEDS)] |= CHSV(dothue, 200, 180);
+    for (int i = 0; i < 8; i++) {
+        rightLense[beatsin16(i + 7, 0, NUM_LEDS)] |= CHSV(dothue, 200, 180);
+        leftLense[beatsin16(i + 7, 0, NUM_LEDS)] |= CHSV(dothue, 200, 180);
         dothue += 32;
     }
 
     FastLED.show();
-    EVERY_N_MILLISECONDS( 20 ) { hue++; } // slowly cycle the "base color" through the rainbow
+    EVERY_N_MILLISECONDS(20)
+    { hue++; } // slowly cycle the "base color" through the rainbow
 }
 
 void pendulum() {
@@ -346,7 +328,7 @@ void pendulumMode(CRGB color, bool antiGravity, bool mirroredEyes) {
     }
     for (int i = 0; i < NUM_LEDS; i++) {
         int rightIndex = i;
-        int leftIndex = wrapAround(i - 10); // This is because the strips aren't installed in the same place
+        int leftIndex = wrapAround(i - 10); // This is because the strips aren't installed in the same orientation :/
         boolean turnedOn = false;
         for (int j = 0; j < (pupilRadius * 2 + 1); j++) {
             if (lightOn[j] == i) {
@@ -465,27 +447,6 @@ void meteor(CRGB strip[], int meteorBodyPixel, int tailLength, int fade) {
  * These animations that hold up the loop, so you wont be able to
  * check for gestures, or anything of the such.
  *******************************************************************/
-
-// gradual spin up
-void spinUp() {
-    for (int i = 300; i > 0; i -= 20) {
-        spin(CRGB::White, 1, i);
-    }
-    pos = 0;
-    // leave it with some momentum and let it 'coast' to a stop
-    MomentumH = 3;
-}
-
-// Gradual spin down
-void spinDown() {
-    for (int i = 1; i < 300; i += 20) {
-        spin(CRGB::White, 1, i);
-    }
-    // Stop it dead at the top and let it swing to the bottom on its own
-    pos = 0;
-    MomentumH = MomentumV = 0;
-}
-
 // utility function for feedback on mode changes.
 void spin(CRGB color, int count, int time) {
     for (int j = 0; j < count; j++) {
