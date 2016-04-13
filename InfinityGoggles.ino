@@ -61,6 +61,7 @@ const PatternDefinitionList patterns = {
         {nothing,       bpm},
         {nothing,       juggle},
         {nothing,       sinelon},
+        {nothing,       pulse},
         {lowKeyRainbow, rotateClockwise},
         {meteor,        rotateClockwise}
 };
@@ -136,7 +137,7 @@ void checkForGestures(sensors_event_t accel) {
 }
 
 void activateGestureModeSelect() {
-    uint8_t hueCounter = 1;
+    uint8_t hueCounter = 0;
     clearStrip();
     FastLED.show();
     int ledsPerSection = round(NUM_LEDS / ARRAY_SIZE(patterns));
@@ -243,8 +244,8 @@ void bpm() {
 
 // a colored dot sweeping back and forth, with fading trails
 void sinelon() {
-    fadeToBlackBy(rightLense, NUM_LEDS, 20);
-    fadeToBlackBy(leftLense, NUM_LEDS, 20);
+    fadeToBlackBy(rightLense, NUM_LEDS, 10);
+    fadeToBlackBy(leftLense, NUM_LEDS, 10);
     int pos = beatsin16(13, 0, NUM_LEDS);
     rightLense[pos] += CHSV(hue, 200, 192);
     leftLense[pos] += CHSV(hue, 200, 192);
@@ -260,9 +261,9 @@ void juggle() {
     fadeToBlackBy(rightLense, NUM_LEDS, 20);
     fadeToBlackBy(leftLense, NUM_LEDS, 20);
     byte dothue = 0;
-    for (int i = 0; i < 8; i++) {
-        rightLense[beatsin16(i + 7, 0, NUM_LEDS)] |= CHSV(dothue, 200, 180);
-        leftLense[beatsin16(i + 7, 0, NUM_LEDS)] |= CHSV(dothue, 200, 180);
+    for (int i = 0; i < 6; i++) {
+        rightLense[beatsin16(i + 5, 0, NUM_LEDS)] |= CHSV(dothue, 200, 180);
+        leftLense[beatsin16(i + 5, 0, NUM_LEDS)] |= CHSV(dothue, 200, 180);
         dothue += 32;
     }
 
@@ -349,6 +350,12 @@ int brightness = 180;
 bool swap = true;
 bool direction = false;
 
+void pulse() {
+    pulse(rightLense, random16(NUM_LEDS), 2);
+    pulse(leftLense, random16(NUM_LEDS), 2);
+    delay(100);
+}
+
 void pulse(CRGB strip[], int center, int radius) {
     if (swap == true) {
         swap = false;
@@ -357,9 +364,8 @@ void pulse(CRGB strip[], int center, int radius) {
     if (direction == false) {
         fadeAmount = -fadeAmount;
     }
-    lsm.getEvent(&accel, &mag, &gyro, &temp);
     CRGB magHeadingBasedColor = convertHeadingToColor(fabs(round(mag.magnetic.z * 100)), 180);
-    int tempBrightness = brightness;
+    int tempBrightness = BRIGHTNESS;
 
     strip[center] = magHeadingBasedColor;
     strip[center].nscale8_video(brightness);
@@ -411,6 +417,12 @@ void clearStrip() {
         leftLense[i] = CRGB(0, 0, 0);
         rightLense[i] = CRGB(0, 0, 0);
     }
+}
+
+void rainbow() {
+    fill_rainbow(leftLense, NUM_LEDS, hue, 11);
+    fill_rainbow(rightLense, NUM_LEDS, hue, 11);
+    FastLED.show();
 }
 
 void lowKeyRainbow() {
