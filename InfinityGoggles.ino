@@ -143,10 +143,10 @@ void activateGestureModeSelect() {
     int ledsPerSection = round(NUM_LEDS / ARRAY_SIZE(patterns));
     for (int i = 0; i < currentPatternNumber + 1; i++) {
         int sectionStartPixel = i * ledsPerSection;
-        turnSectionOn(CHSV(hueCounter, 200, 100), ledsPerSection, sectionStartPixel);
+`        turnSectionOn(CHSV(hueCounter, 200, BRIGHTNESS), ledsPerSection, sectionStartPixel);
         FastLED.show();
         hueCounter += round(255 / ARRAY_SIZE(patterns));
-        delay(250);
+        delay(200);
     }
     for (int i = 0; i < 100; i++) {
         delay(25);
@@ -156,7 +156,7 @@ void activateGestureModeSelect() {
             if (currentPatternNumber - 1 == 255) {
                 clearStrip();
             }
-            blinkSection(CHSV(hueCounter - 2 * round(255 / ARRAY_SIZE(patterns)), 200, 100), ledsPerSection,
+            blinkSection(CHSV(hueCounter - 2 * round(255 / ARRAY_SIZE(patterns)), 200, BRIGHTNESS), ledsPerSection,
                          ledsPerSection * (currentPatternNumber - 1), 5, 150);
             previousPattern();
             break;
@@ -165,7 +165,7 @@ void activateGestureModeSelect() {
             if (currentPatternNumber + 1 == ARRAY_SIZE(patterns)) {
                 clearStrip();
             }
-            blinkSection(CHSV(hueCounter + round(255 / ARRAY_SIZE(patterns)), 200, 100), ledsPerSection,
+            blinkSection(CHSV(hueCounter + round(255 / ARRAY_SIZE(patterns)), 200, BRIGHTNESS), ledsPerSection,
                          ledsPerSection * (currentPatternNumber + 1), 5, 150);
             nextPattern();
             break;
